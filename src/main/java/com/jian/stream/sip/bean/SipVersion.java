@@ -173,7 +173,7 @@ public class SipVersion implements Comparable<SipVersion> {
         return minorVersion() - o.minorVersion();
     }
 
-    void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf) {
         if (bytes == null) {
             buf.writeCharSequence(text, CharsetUtil.US_ASCII);
         } else {

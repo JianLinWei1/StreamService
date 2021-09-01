@@ -1,12 +1,9 @@
 package com.jian.stream.sip.handler;
 
-import com.jian.stream.sip.bean.SipVersion;
+import com.jian.stream.sip.bean.*;
+import com.jian.stream.sip.utils.SipHeaderUtil;
 import io.netty.buffer.ByteBuf;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelHandler;
-
-import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.*;
 
 import io.netty.channel.socket.DatagramChannel;
 import io.netty.channel.socket.DatagramPacket;
@@ -28,8 +25,8 @@ import java.util.Map;
  */
 
 @Log4j2
-@ChannelHandler.Sharable
-public class SipRequestHandler  extends ChannelInboundHandlerAdapter {
+
+public class SipRequestHandler  extends SimpleChannelInboundHandler<FullSipRequest> {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -59,33 +56,59 @@ public class SipRequestHandler  extends ChannelInboundHandlerAdapter {
     }
 
     @Override
-    public void channelRead(ChannelHandlerContext ctx, Object msg) {
-     //   AbstractSipHeaders headers = msg.headers();
+    public void channelRead0(ChannelHandlerContext ctx, FullSipRequest msg) {
+
+        AbstractSipHeaders headers = msg.headers();
         Channel channel = ctx.channel();
-        DatagramPacket byteBuffer = (DatagramPacket) msg;
-
-        ByteBuf  byteBuf  = byteBuffer.content();
-        byte[]  bytes  = new byte[byteBuf.readableBytes()];
-        byteBuf.readBytes(bytes);
-        String  str  =new String(bytes, Charset.forName("gbk"));
-        System.out.println(str.trim());
-        System.out.println(re(str.trim()));
-        System.out.println("**********************消息**********************");
-
+        log.info("********************消息****************");
+        log.info(msg);
         // 启动的时候已经声明了. TCP为NioSocketChannel, UDP为NioDatagramChannel
-      /*  if (channel instanceof NioDatagramChannel) {
+        if (channel instanceof NioDatagramChannel) {
             log.info("[{}{}] rec udp request msg", channel.id().asShortText(), msg.recipient().toString());
         } else {
             log.info("[{}{}] rec tcp request msg", channel.id().asShortText(), msg.recipient().toString());
-        }*/
-        /*if (SipMethod.BAD == msg.method()) {
+        }
+        if (SipMethod.BAD == msg.method()) {
             log.error("收到一个错误的SIP消息");
             StringBuilder builder = new StringBuilder();
-           // log.error(SipMessageUtil.appendFullRequest(builder, msg).toString());
-        }*/
+            log.error(SipMessageUtil.appendFullRequest(builder, msg).toString());
+        }
+
 
         // 异步执行
-       // DispatchHandler.INSTANCE.handler(msg, ctx.channel());
+       //DispatchHandler.INSTANCE.handler(msg, ctx.channel());
+
+        DefaultFullSipResponse response = new DefaultFullSipResponse(SipResponseStatus.UNAUTHORIZED);
+        response.setRecipient(msg.recipient());
+        AbstractSipHeaders h = response.headers();
+        if (!headers.contains(SipHeaderNames.AUTHORIZATION)) {
+            String wwwAuth = "Digest realm=\"3402000000\", nonce=\"" +
+                    "b700dc7cb094478503a21148184a3731";
+
+            String ipPort = channel.localAddress().toString();
+            h.set(SipHeaderNames.VIA, SipHeaderUtil.via(channel, msg.recipient()))
+                    .set(SipHeaderNames.FROM, headers.get(SipHeaderNames.FROM))
+                    .set(SipHeaderNames.TO, headers.get(SipHeaderNames.TO))
+                    .set(SipHeaderNames.CSEQ, headers.get(SipHeaderNames.CSEQ))
+                    .set(SipHeaderNames.CALL_ID, headers.get(SipHeaderNames.CALL_ID))
+                    .set(SipHeaderNames.USER_AGENT, SipHeaderValues.USER_AGENT)
+                    .set(SipHeaderNames.WWW_AUTHENTICATE, wwwAuth)
+                    .set(SipHeaderNames.CONTENT_LENGTH, SipHeaderValues.EMPTY_CONTENT_LENGTH);
+        } else {
+            //todo.. 检验是否存在等等问题.
+            h.set(SipHeaderNames.FROM, headers.get(SipHeaderNames.FROM))
+                    .set(SipHeaderNames.TO, headers.get(SipHeaderNames.TO) + ";tag=" + System.currentTimeMillis())
+                    .set(SipHeaderNames.CSEQ, headers.get(SipHeaderNames.CSEQ))
+                    .set(SipHeaderNames.CALL_ID, headers.get(SipHeaderNames.CALL_ID))
+                    .set(SipHeaderNames.USER_AGENT, SipHeaderValues.USER_AGENT)
+                    .set(SipHeaderNames.CONTENT_LENGTH, SipHeaderValues.EMPTY_CONTENT_LENGTH);
+            response.setStatus(SipResponseStatus.OK);
+        }
+        log.info("***************注册回复开始*************");
+        log.info(response.toString());
+        ChannelFuture channel1 =   channel.writeAndFlush(response);
+        System.out.println(channel1.cause());
+        log.info("***************注册回复结束*************结果：{}" ,channel1.isSuccess());
     }
 
 
@@ -99,100 +122,6 @@ public class SipRequestHandler  extends ChannelInboundHandlerAdapter {
     }
 
 
-    private static Map<String,String> re(String str){
-        Map<String,String> map=new HashMap<>();
-        BufferedReader br = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(str.getBytes(Charset.forName("gbk"))), Charset.forName("gbk")));
-        //记录读取的行数
-        Integer count=0;
-        try {
-            String line=null;
-            //记录是否遇到空行，消息体和消息头中间会有个换行隔开
-            boolean flag=false;
-            while ((line=br.readLine())!=null){
-                count=count+1;
-                if("".equals(line)){
-                    flag=true;
-                    continue;
-                }
-                if(flag){
-                    //获取MESSAGE 对应的CmdType，这里常见的是keeplive(保护心跳)
-                    if(line.contains("<CmdType>")){
-                        //去掉空字符串（测试的情况是海康的有空格，大华没有）
-                        line=line.trim();
-                        line=line.replace("<CmdType>","");
-                        line=line.replace("</CmdType>","");
-                        map.put("CmdType",line);
-                    }
-
-                    continue;
-                }
-                if(count==1){
-                    //第一行信息 SIP/2.0结尾的是摄像头请求信息
-                    if(line.endsWith("SIP/2.0")){
-                        //获取消息类型
-                        map.put("method",line.split("\\s+")[0].trim());
-                        map.put("messageType","REQUEST");
-                        continue;
-                    }
-                    //SIP/2.0开头的是摄像头响应的信息
-                    if(line.startsWith("SIP/2.0")){
-                        //响应码获取
-                        map.put("stateCode",line.split("\\s+")[1]);
-                        //消息类型
-                        map.put("method",line.split("\\s+")[2].trim());
-                        map.put("messageType","RESPONSE");
-                        continue;
-                    }
-                }
-                //冒号加空格切割请求头属性和值
-                String[] s=line.split(": ");
-                //第一个是请求头名称，第二个是值
-                map.put(s[0].trim(),s[1].trim());
-                //From请求头,如果是请求信息，通常设备编号在这里获取
-                if("From".equals(s[0])){
-                    if("REQUEST".equals(map.get("messageType"))){
-                        String deviceId=s[1].split(";")[0];
-                        deviceId=deviceId.split(":")[1];
-                        deviceId=deviceId.replace(">","");
-                        deviceId=deviceId.split("@")[0];
-                        map.put("deviceId",deviceId);
-                        log.info(deviceId);
-                    }
-                }
-
-                if("To".equals(s[0])){
-                    if("RESPONSE".equals(map.get("messageType"))&&!map.get("Via").contains("branchbye")){
-                        String deviceId=s[1].split("\\s+")[0];
-                        deviceId=deviceId.replaceAll("\"","");
-                        map.put("deviceId",deviceId);
-                        String deviceLocalIp=s[1].split("\\s+")[1];
-                        deviceLocalIp=deviceLocalIp.split(";")[0];
-                        deviceLocalIp=deviceLocalIp.split("@")[1];
-                        deviceLocalIp=deviceLocalIp.replace(">","");
-                        map.put("deviceLocalIp",deviceLocalIp.split(":")[0]);
-                        map.put("deviceLocalPort",deviceLocalIp.split(":")[1]);
-                    }
-                    //这里区分是否是下达推流结束指令的的响应
-                    if("RESPONSE".equals(map.get("messageType"))&&map.get("Via").contains("branchbye")){
-                        String deviceId=s[1].split(";")[0];
-                        deviceId=deviceId.split("@")[0];
-                        deviceId=deviceId.replace("<sip:","");
-                        map.put("deviceId",deviceId);
-                    }
-                }
-            }
-        }catch (Exception e){
-            e.printStackTrace();
-        }
-        if(map.size() == 0)
-            return  map;
-        //设备编号处理特殊情况，有时包含空格
-        if(map.get("deviceId").split("\\s+").length>1){
-            map.put("deviceId",map.get("deviceId").split("\\s+")[1]);
-        }
-        return  map;
-
-    }
 
 
 

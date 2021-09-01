@@ -1,6 +1,11 @@
 package com.jian.stream;
 
 
+import com.jian.stream.sip.bean.SipObjectAggregator;
+import com.jian.stream.sip.coder.SipObjectTcpDecoder;
+import com.jian.stream.sip.coder.SipObjectUdpDecoder;
+import com.jian.stream.sip.coder.SipRequestEncoder;
+import com.jian.stream.sip.coder.SipResponseEncoder;
 import com.jian.stream.sip.handler.SipRequestHandler;
 import com.jian.stream.sip.handler.SipResponseHandler;
 import io.netty.bootstrap.Bootstrap;
@@ -13,9 +18,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.handler.logging.LogLevel;
-import io.netty.util.internal.logging.InternalLogger;
-import io.netty.util.internal.logging.InternalLoggerFactory;
+
 import lombok.extern.log4j.Log4j2;
 
 import java.net.InetSocketAddress;
@@ -44,10 +47,10 @@ public class Application {
                     @Override
                     protected void initChannel(NioDatagramChannel ch) throws Exception {
                         ch.pipeline()
-                               /* .addLast(new SipResponseEncoder())
+                                .addLast(new SipResponseEncoder())
                                 .addLast(new SipRequestEncoder())
                                 .addLast(new SipObjectUdpDecoder())
-                                .addLast(new SipObjectAggregator(8192))*/
+                                .addLast(new SipObjectAggregator(8192))
 
                                 .addLast(new SipRequestHandler())
                                 .addLast(new SipResponseHandler());
@@ -79,10 +82,10 @@ public class Application {
                     @Override
                     protected void initChannel(NioSocketChannel ch) throws Exception {
                         ch.pipeline()
-                               /* .addLast(new SipResponseEncoder())
+                               .addLast(new SipResponseEncoder())
                                 .addLast(new SipRequestEncoder())
                                 .addLast(new SipObjectTcpDecoder())
-                                .addLast(new SipObjectAggregator(8192))*/
+                               .addLast(new SipObjectAggregator(8192))
 
                                 .addLast(new SipRequestHandler())
                                 .addLast(new SipResponseHandler());
